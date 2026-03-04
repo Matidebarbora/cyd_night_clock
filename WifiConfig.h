@@ -10,6 +10,7 @@ struct WifiCredential {
 WifiCredential myNetworks[] = {
   {"JMD_5381", "12345678"},
   {"Room24", "Luanita24"},
+  {"VTR-0663620", "Sc3rwcyrwfqn"}
   {"Phone_Hotspot", "Hotspot_Password"}
 };
 
