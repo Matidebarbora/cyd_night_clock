@@ -2,7 +2,7 @@
 #define STOCKS_CONFIG_H
 
 // Replace this with your Google Apps Script Web App URL
-const char* stockScriptURL = "https://script.google.com/macros/s/AKfycbxwJJIljzGWv9tVyVsslS33cr78anSbfUun2JMa-u2QIu2GDqwZqtEiq7t791kHyk-3/exec";
+const char* stockScriptURL = "https://script.google.com/macros/s/AKfycbxQRkCI2DPMCiLeDig7NH61_YUu1Rz8NM7xRWigZ5ugPtdknZz2RtumT_l7X9O9Xww/exec";
 
 // Stock Data Variables
 float portfolioBalance = 0.0;
