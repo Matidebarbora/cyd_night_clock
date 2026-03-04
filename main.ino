@@ -1,6 +1,7 @@
 #include "CYD_Config.h" 
 #include "WifiConfig.h" 
 #include "WeatherConfig.h"
+
 #include <SPI.h>
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
@@ -9,13 +10,18 @@
 #include <ArduinoJson.h>
 #include "time.h"
 
+// 1. Initialize Display and Colors First
 TFT_eSPI tft = TFT_eSPI();
 
-// ===== COLOR CONFIGURATION =====
 #define COLOR_BG      0x2104 
 #define COLOR_ACCENT  0xFDA0 
 #define COLOR_TEXT    0xFFFF 
 #define COLOR_HEADER  0x0000 
+#define COLOR_RED     0xF800
+#define COLOR_GREEN   0x07E0
+
+// 2. Include Stocks Configuration after colors are defined
+#include "StocksConfig.h" 
 
 // ===== Peripherals =====
 #define XPT2046_IRQ  36
@@ -29,7 +35,7 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 
 // ===== UI State =====
 const int FOOTER_Y = 200;
-enum ScreenState { MAIN, WEATHER, CONFIG };
+enum ScreenState { MAIN, WEATHER, STOCKS };
 ScreenState currentScreen = MAIN;
 
 String currentTime = "00:00:00";
@@ -42,10 +48,10 @@ Forecast weekly[3];
 
 unsigned long lastTimeUpdate = 0;
 unsigned long lastWeatherUpdate = 0;
-const unsigned long WEATHER_INTERVAL = 900000; 
+const unsigned long WEATHER_INTERVAL = 900000; // 15 mins
 
 // ===================================================
-// 1. Helper Logic
+// 1. Data Logic
 // ===================================================
 
 void drawWifiDot() {
@@ -95,8 +101,54 @@ void fetchWeather() {
   http.end();
 }
 
+void fetchStocks() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.begin(stockScriptURL);
+
+  http.setTimeout(20000);
+  
+  int httpCode = http.GET();
+  Serial.print("Stock HTTP Code: ");
+  Serial.println(httpCode);
+
+  if (httpCode > 0) {
+    String payload = http.getString();
+    Serial.println("Received Payload: " + payload); // Check if this looks like JSON
+
+    DynamicJsonDocument doc(2048);
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (error) {
+      Serial.print("JSON Error: ");
+      Serial.println(error.f_str());
+      return;
+    }
+    
+    portfolioBalance = doc["balance"];
+    portfolioChange  = doc["change"];
+    portfolioProfit  = doc["profit"];
+    daysActive       = doc["active"];
+
+    JsonArray arr = doc["watchlist"];
+    assetCount = 0; 
+    for (JsonObject obj : arr) {
+      if (assetCount < 5) {
+        watchlist[assetCount].symbol = obj["s"].as<String>();
+        watchlist[assetCount].price  = obj["p"].as<float>();
+        assetCount++;
+      }
+    }
+    Serial.println("Stock Data Parsed Successfully");
+  } else {
+    Serial.printf("HTTP Error: %s\n", http.errorToString(httpCode).c_str());
+  }
+  http.end();
+}
+
 // ===================================================
-// 2. UI Screens
+// 2. UI Drawing Helpers
 // ===================================================
 
 void drawFooter(ScreenState active) {
@@ -109,15 +161,13 @@ void drawFooter(ScreenState active) {
   tft.drawString("HOME", 53, FOOTER_Y + 20);
   tft.setTextColor(active == WEATHER ? COLOR_ACCENT : COLOR_TEXT);
   tft.drawString("WEATHER", 160, FOOTER_Y + 20);
-  tft.setTextColor(active == CONFIG ? COLOR_ACCENT : COLOR_TEXT);
-  tft.drawString("CONFIG", 267, FOOTER_Y + 20);
+  tft.setTextColor(active == STOCKS ? COLOR_ACCENT : COLOR_TEXT);
+  tft.drawString("STOCKS", 267, FOOTER_Y + 20);
 }
 
 void drawMainScreen() {
   tft.fillScreen(COLOR_BG);
   tft.fillRect(0, 0, 320, 70, COLOR_HEADER);
-  
-  // Time (Anti-Flicker: Print with background color set)
   tft.setTextSize(1);
   tft.setTextColor(COLOR_ACCENT, COLOR_HEADER); 
   tft.setTextDatum(MC_DATUM);
@@ -128,13 +178,12 @@ void drawMainScreen() {
   tft.drawString(currentDate, 160, 95);
   tft.drawString(weatherDesc, 160, 125);
 
-  // Swapped Colors as requested
-  tft.setTextColor(COLOR_ACCENT); // Labels Amber
+  tft.setTextColor(COLOR_ACCENT);
   tft.drawString("Min", 60, 155);
   tft.drawString("Current", 160, 155);
   tft.drawString("Max", 260, 155);
 
-  tft.setTextColor(COLOR_TEXT);   // Values White
+  tft.setTextColor(COLOR_TEXT);
   tft.drawString(String((int)mainMin) + "C", 60, 180);
   tft.drawString(String((int)mainTemp) + "C", 160, 180);
   tft.drawString(String((int)mainMax) + "C", 260, 180);
@@ -168,34 +217,51 @@ void drawWeatherScreen() {
   drawFooter(WEATHER);
 }
 
-void drawConfigScreen() {
+void drawStocksScreen() {
   tft.fillScreen(COLOR_BG);
-  tft.fillRect(0, 0, 320, 40, COLOR_HEADER);
-  tft.setTextSize(2);
-  tft.setTextColor(COLOR_ACCENT);
+  tft.fillRect(0, 0, 320, 35, COLOR_HEADER);
+  tft.setTextSize(2); 
+  tft.setTextColor(COLOR_ACCENT); 
   tft.setTextDatum(MC_DATUM);
-  tft.drawString("CONFIGURATION", 160, 20);
+  tft.drawString("STOCKS WATCHLIST", 160, 17);
 
-  tft.setTextColor(COLOR_TEXT);
-  tft.setTextSize(2);
-  tft.setCursor(20, 80);
-  tft.print("WiFi SSID:");
+  // Summary Row - Using Font 2 explicitly to ensure visibility
+  //tft.setTextDatum(TL_DATUM);
+  tft.setTextSize(1); 
+  //tft.setTextColor(COLOR_TEXT);
+  //tft.drawString("Balance: $" + String(portfolioBalance, 2), 10, 45, 2); 
+  
+  // Percent Change
+  //tft.setTextColor(portfolioChange >= 0 ? COLOR_GREEN : COLOR_RED);
+  //tft.drawRightString(String(portfolioChange, 2) + "%", 310, 45, 2);
+
+  // Table Header
+  tft.drawLine(0, 40, 320, 40, COLOR_ACCENT); //   tft.drawLine(0, 65, 320, 65, COLOR_ACCENT);
   tft.setTextColor(COLOR_ACCENT);
-  tft.setCursor(20, 110);
-  tft.print(WiFi.SSID());
+  tft.drawString("SYMBOL", 50, 52, 2); //   tft.drawString("SYMBOL", 20, 72, 2);
+  tft.drawString("PRICE", 280, 52, 2);
+  tft.drawLine(0, 65, 320, 65, COLOR_ACCENT); //   tft.drawLine(0, 90, 320, 90, COLOR_ACCENT);
 
-  tft.setTextColor(COLOR_TEXT);
-  tft.setCursor(20, 150);
-  tft.print("IP Address:");
-  tft.setCursor(20, 180);
-  tft.print(WiFi.localIP().toString());
+  // Asset Rows
+  for (int i = 0; i < assetCount; i++) {
+    int yPos = 75 + (i * 22); 
+    
+    // Symbol in Accent Color (Font 2, Size 1)
+    tft.setTextColor(COLOR_ACCENT);
+    tft.drawString(watchlist[i].symbol, 50, yPos, 2);
+    
+    // Price in White (Font 2, Size 1)
+    tft.setTextColor(COLOR_TEXT);
+    String priceStr = "$" + String(watchlist[i].price, 2);
+    tft.drawRightString(priceStr, 300, yPos, 2); 
+  }
 
   drawWifiDot();
-  drawFooter(CONFIG);
+  drawFooter(STOCKS);
 }
 
 // ===================================================
-// 3. Main Logic
+// 3. Main Loop Logic
 // ===================================================
 
 void setup() {
@@ -210,6 +276,8 @@ void setup() {
   connectToWifi();
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   fetchWeather(); 
+  fetchStocks();
+  
   drawMainScreen();
 }
 
@@ -221,24 +289,22 @@ void loop() {
     if (ty > FOOTER_Y) {
       if (tx < 106 && currentScreen != MAIN) { currentScreen = MAIN; drawMainScreen(); }
       else if (tx >= 106 && tx < 213 && currentScreen != WEATHER) { currentScreen = WEATHER; drawWeatherScreen(); }
-      else if (tx >= 213 && currentScreen != CONFIG) { currentScreen = CONFIG; drawConfigScreen(); }
+      else if (tx >= 213 && currentScreen != STOCKS) { currentScreen = STOCKS; drawStocksScreen(); }
       delay(200); 
     }
   }
 
   // Update Clock every second
   if (millis() - lastTimeUpdate > 1000) {
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) {
-      char tStr[10], dStr[12];
-      strftime(tStr, sizeof(tStr), "%H:%M:%S", &timeinfo);
-      strftime(dStr, sizeof(dStr), "%d-%m-%Y", &timeinfo);
-      currentTime = String(tStr);
-      currentDate = String(dStr);
+    struct tm ti;
+    if (getLocalTime(&ti)) {
+      char ts[10], ds[12];
+      strftime(ts, sizeof(ts), "%H:%M:%S", &ti);
+      strftime(ds, sizeof(ds), "%d-%m-%Y", &ti);
+      currentTime = String(ts);
+      currentDate = String(ds);
       
       if (currentScreen == MAIN) {
-        // No fillRect here = No Flicker. 
-        // We print the text with its background color to "self-erase" old digits.
         tft.setTextSize(1);
         tft.setTextColor(COLOR_ACCENT, COLOR_HEADER); 
         tft.setTextDatum(MC_DATUM);
@@ -253,5 +319,12 @@ void loop() {
     fetchWeather();
     if (currentScreen == MAIN) drawMainScreen();
     lastWeatherUpdate = millis();
+  }
+
+  // Update Stocks every 5 mins
+  if (millis() - lastStockUpdate > STOCK_INTERVAL) {
+    fetchStocks();
+    if (currentScreen == STOCKS) drawStocksScreen();
+    lastStockUpdate = millis();
   }
 }
