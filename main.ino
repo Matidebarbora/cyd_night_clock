@@ -220,25 +220,28 @@ void drawWeatherScreen() {
 void drawStocksScreen() {
   tft.fillScreen(COLOR_BG);
   tft.fillRect(0, 0, 320, 35, COLOR_HEADER);
-  tft.setTextSize(2); 
+  tft.setTextSize(1); 
   tft.setTextColor(COLOR_ACCENT); 
-  tft.setTextDatum(MC_DATUM);
-  tft.drawString("STOCKS WATCHLIST", 160, 17);
+  //tft.setTextDatum(MC_DATUM);
+  //tft.drawString("STOCKS WATCHLIST", 160, 17);
+  tft.drawString("BALANCE: $" + String(portfolioBalance, 2), 65, 17, 2);
+  tft.setTextColor(portfolioChange >= 0 ? COLOR_GREEN : COLOR_RED);
+  tft.drawRightString(String(portfolioChange, 2) + "%", 270, 9, 2); 
 
   // Summary Row - Using Font 2 explicitly to ensure visibility
-  //tft.setTextDatum(TL_DATUM);
-  tft.setTextSize(1); 
-  //tft.setTextColor(COLOR_TEXT);
-  //tft.drawString("Balance: $" + String(portfolioBalance, 2), 10, 45, 2); 
+  // tft.setTextDatum(TL_DATUM);
+  // tft.setTextSize(1); 
+  // tft.setTextColor(COLOR_TEXT);
+  // tft.drawString("Balance: $" + String(portfolioBalance, 2), 10, 45, 2); 
   
   // Percent Change
-  //tft.setTextColor(portfolioChange >= 0 ? COLOR_GREEN : COLOR_RED);
-  //tft.drawRightString(String(portfolioChange, 2) + "%", 310, 45, 2);
+  // tft.setTextColor(portfolioChange >= 0 ? COLOR_GREEN : COLOR_RED);
+  // tft.drawRightString(String(portfolioChange, 2) + "%", 310, 45, 2);
 
   // Table Header
   tft.drawLine(0, 40, 320, 40, COLOR_ACCENT); //   tft.drawLine(0, 65, 320, 65, COLOR_ACCENT);
   tft.setTextColor(COLOR_ACCENT);
-  tft.drawString("SYMBOL", 50, 52, 2); //   tft.drawString("SYMBOL", 20, 72, 2);
+  tft.drawString("SYMBOL", 50, 52, 2); //   tft.drawString("SYMBOL", 50, 52, 2);
   tft.drawString("PRICE", 280, 52, 2);
   tft.drawLine(0, 65, 320, 65, COLOR_ACCENT); //   tft.drawLine(0, 90, 320, 90, COLOR_ACCENT);
 
