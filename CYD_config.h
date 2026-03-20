@@ -12,6 +12,11 @@
 #define TFT_WIDTH  240
 #define TFT_HEIGHT 320
 
+// LED pins
+#define LED_RED   4
+#define LED_GREEN 16
+#define LED_BLUE  17
+
 // Pin definitions for ESP32-2432S028 (CYD)
 #define TFT_MISO 12
 #define TFT_MOSI 13
