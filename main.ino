@@ -30,8 +30,14 @@ TFT_eSPI tft = TFT_eSPI();
 #define XPT2046_CLK  25
 #define XPT2046_CS   33
 
+const int BRIGHTNESS_FULL = 255;
+const int BRIGHTNESS_DIM  = 45; // Easily change your '50' value here
+
 SPIClass touchscreenSPI = SPIClass(VSPI);
 XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
+
+bool ledPower = true; // Tracks if the LED is allowed to be on
+const int LED_BTN_SIZE = 30; // Size of the touch area in the top left
 
 // ===== UI State =====
 const int FOOTER_Y = 200;
@@ -55,7 +61,7 @@ const unsigned long WEATHER_INTERVAL = 900000; // 15 mins
 // ===================================================
 
 void drawWifiDot() {
-  uint16_t dotColor = (WiFi.status() == WL_CONNECTED) ? TFT_GREEN : TFT_RED;
+  uint16_t dotColor = (WiFi.status() == WL_CONNECTED) ? TFT_GREEN : TFT_RED; // 
   tft.fillCircle(310, 10, 4, dotColor);
 }
 
@@ -67,18 +73,88 @@ void connectToWifi() {
   tft.drawString("Connecting WiFi...", 160, 100);
 
   for (int i = 0; i < networkCount; i++) {
+    // 1. Reset WiFi state for the new SSID attempt
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_STA);
+    delay(100);
+
+    Serial.printf("Connecting to: %s\n", myNetworks[i].ssid);
+    
+    // Update Screen for the current attempt
+    tft.fillRect(0, 130, 320, 40, COLOR_BG); 
+    tft.drawString("Trying: " + String(myNetworks[i].ssid), 160, 140);
+
     WiFi.begin(myNetworks[i].ssid, myNetworks[i].password);
+
     int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 15) {
+    // Try for 10 seconds (20 * 500ms) per SSID
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+      // 2. Blink the Blue RGB LED (Active Low logic)
+      digitalWrite(LED_BLUE, (attempts % 2 == 0) ? LOW : HIGH);
+      
+      // Keep other colors OFF while blinking blue
+      digitalWrite(LED_RED, HIGH);
+      digitalWrite(LED_GREEN, HIGH);
+
       delay(500);
+      Serial.print(".");
       attempts++;
     }
+
+    // 3. Check if we succeeded
     if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("\nWiFi Connected!");
+      
+      // Turn Blue OFF and show Success Green
+      digitalWrite(LED_BLUE, HIGH);
+      digitalWrite(LED_GREEN, LOW); 
+      
+      tft.fillRect(0, 130, 320, 80, COLOR_BG);
       tft.drawString("Connected!", 160, 140);
-      delay(1000);
-      return;
+      tft.setTextSize(1);
+      tft.drawString(WiFi.localIP().toString(), 160, 170);
+      
+      delay(1500); // Small pause to show the IP
+      return; 
     }
+
+    Serial.println("\nFailed.");
+    // Turn Blue OFF before trying the next network
+    digitalWrite(LED_BLUE, HIGH);
   }
+
+  // 4. If the loop completes without 'return', no network was found
+  tft.fillScreen(COLOR_RED);
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.drawString("No WiFi Found", 160, 100);
+  
+  // Set LED to Red to signal error
+  digitalWrite(LED_RED, LOW);
+  digitalWrite(LED_GREEN, HIGH);
+  digitalWrite(LED_BLUE, HIGH);
+  
+  delay(5000); 
+}
+
+void toggleLED() {
+  ledPower = !ledPower; // Flip the state
+  
+  // Link the dim/full values to the state
+  int targetBrightness = ledPower ? BRIGHTNESS_FULL : BRIGHTNESS_DIM;
+  
+  // Apply to hardware
+  ledcWrite(TFT_BL, targetBrightness); 
+  
+  if (!ledPower) {
+    // Force RGB LED OFF immediately in dim mode
+    digitalWrite(LED_RED, HIGH);
+    digitalWrite(LED_GREEN, HIGH);
+    digitalWrite(LED_BLUE, HIGH);
+  }
+    
+  // Refresh the screen to show the updated button icon
+  if (currentScreen == MAIN) drawMainScreen();
 }
 
 void fetchWeather() {
@@ -173,6 +249,13 @@ void drawMainScreen() {
   tft.setTextDatum(MC_DATUM);
   tft.drawString(currentTime, 160, 35, 7); 
 
+  // Draw the LED Toggle Button in the top left
+  if (ledPower) {
+    tft.fillCircle(20, 20, 8, COLOR_GREEN); // Green filled circle = ON
+  } else {
+    tft.drawCircle(20, 20, 8, COLOR_RED);   // Red outline circle = OFF
+  }
+
   tft.setTextSize(2); 
   tft.setTextColor(COLOR_ACCENT, COLOR_BG);
   tft.drawString(currentDate, 160, 95);
@@ -222,21 +305,9 @@ void drawStocksScreen() {
   tft.fillRect(0, 0, 320, 35, COLOR_HEADER);
   tft.setTextSize(1); 
   tft.setTextColor(COLOR_ACCENT); 
-  //tft.setTextDatum(MC_DATUM);
-  //tft.drawString("STOCKS WATCHLIST", 160, 17);
   tft.drawString("BALANCE: $" + String(portfolioBalance, 2), 65, 17, 2);
   tft.setTextColor(portfolioChange >= 0 ? COLOR_GREEN : COLOR_RED);
-  tft.drawRightString(String(portfolioChange, 2) + "%", 270, 9, 2); 
-
-  // Summary Row - Using Font 2 explicitly to ensure visibility
-  // tft.setTextDatum(TL_DATUM);
-  // tft.setTextSize(1); 
-  // tft.setTextColor(COLOR_TEXT);
-  // tft.drawString("Balance: $" + String(portfolioBalance, 2), 10, 45, 2); 
-  
-  // Percent Change
-  // tft.setTextColor(portfolioChange >= 0 ? COLOR_GREEN : COLOR_RED);
-  // tft.drawRightString(String(portfolioChange, 2) + "%", 310, 45, 2);
+  tft.drawRightString(String(portfolioChange, 2) + "%", 230, 8, 2); 
 
   // Table Header
   tft.drawLine(0, 40, 320, 40, COLOR_ACCENT); //   tft.drawLine(0, 65, 320, 65, COLOR_ACCENT);
@@ -263,6 +334,43 @@ void drawStocksScreen() {
   drawFooter(STOCKS);
 }
 
+void updateStatusIndicators() {
+  // 1. Determine WiFi Connection Status
+  bool connected = (WiFi.status() == WL_CONNECTED);
+  
+  // 2. Update the On-Screen WiFi Dot (Always visible regardless of LED toggle)
+  uint16_t dotColor = connected ? TFT_GREEN : TFT_RED;
+  tft.fillCircle(310, 10, 4, dotColor);
+
+  // 3. Handle the Physical RGB LED (Active Low logic: LOW = ON, HIGH = OFF)
+  if (ledPower) {
+    // If we are on the Stocks screen, prioritize the "Stocks Green" look
+    if (currentScreen == STOCKS) {
+      digitalWrite(LED_GREEN, LOW);  // Green ON
+      digitalWrite(LED_RED, HIGH);   // Red OFF
+      digitalWrite(LED_BLUE, HIGH);  // Blue OFF
+    } 
+    // Otherwise, show WiFi Status (Green for connected, Red for disconnected)
+    else {
+      digitalWrite(LED_GREEN, connected ? LOW : HIGH);
+      digitalWrite(LED_RED,   connected ? HIGH : LOW);
+      digitalWrite(LED_BLUE,  HIGH); 
+    }
+  } 
+  else {
+    // Master Kill Switch: If ledPower is false, force all LED pins OFF
+    digitalWrite(LED_RED, HIGH);
+    digitalWrite(LED_GREEN, HIGH);
+    digitalWrite(LED_BLUE, HIGH);
+  }
+}
+
+void setBrightness(int level) {
+  // Constrain the value between 0 and 255 just in case
+  int brightness = constrain(level, 0, 255);
+  ledcWrite(0, brightness); // Channel 0 as defined in setup
+}
+
 // ===================================================
 // 3. Main Loop Logic
 // ===================================================
@@ -271,6 +379,26 @@ void setup() {
   Serial.begin(115200);
   tft.init();
   tft.setRotation(1);
+
+  // 1. Define the PWM properties (Keep these)
+  const int pwmFreq = 5000;    // 5KHz
+  const int pwmResolution = 8; // 8-bit (0-255)
+  const int pwmChannel = 0;    // This is handled automatically now, but good to keep for reference
+
+  // 2. New V3.0+ Setup Command
+  // Syntax: ledcAttach(pin, frequency, resolution)
+  ledcAttach(TFT_BL, pwmFreq, pwmResolution);
+
+  // 3. Set initial brightness (0 = OFF, 255 = MAX)
+  ledcWrite(TFT_BL, 50);
+
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_BLUE, OUTPUT);
+
+  digitalWrite(LED_RED, HIGH);
+  digitalWrite(LED_GREEN, HIGH);
+  digitalWrite(LED_BLUE, HIGH);
   
   touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
   touchscreen.begin(touchscreenSPI);
@@ -285,20 +413,42 @@ void setup() {
 }
 
 void loop() {
+  // 1. Handle Touch Input
   if (touchscreen.touched()) {
     TS_Point p = touchscreen.getPoint();
+    
+    // Mapping for CYD (Landscape 1)
     int tx = map(p.x, 200, 3700, 0, 320);
     int ty = map(p.y, 240, 3800, 0, 240);
+
+    // TOGGLE CHECK: Only active on MAIN screen where the icon is drawn
+    if (currentScreen == MAIN && tx < 40 && ty < 40) {
+      toggleLED(); 
+      delay(300); // Debounce to prevent rapid flickering
+    }
+
+    // FOOTER NAVIGATION: Swaps screens and refreshes UI
     if (ty > FOOTER_Y) {
-      if (tx < 106 && currentScreen != MAIN) { currentScreen = MAIN; drawMainScreen(); }
-      else if (tx >= 106 && tx < 213 && currentScreen != WEATHER) { currentScreen = WEATHER; drawWeatherScreen(); }
-      else if (tx >= 213 && currentScreen != STOCKS) { currentScreen = STOCKS; drawStocksScreen(); }
+      if (tx < 106 && currentScreen != MAIN) { 
+        currentScreen = MAIN; 
+        drawMainScreen(); 
+      }
+      else if (tx >= 106 && tx < 213 && currentScreen != WEATHER) { 
+        currentScreen = WEATHER; 
+        drawWeatherScreen(); 
+      }
+      else if (tx >= 213 && currentScreen != STOCKS) { 
+        currentScreen = STOCKS; 
+        drawStocksScreen(); 
+      }
       delay(200); 
     }
   }
 
-  // Update Clock every second
+  // 2. Update Clock and Status Indicators (Every 1 Second)
   if (millis() - lastTimeUpdate > 1000) {
+    updateStatusIndicators(); // Updates both the screen dot and RGB LED
+
     struct tm ti;
     if (getLocalTime(&ti)) {
       char ts[10], ds[12];
@@ -307,6 +457,7 @@ void loop() {
       currentTime = String(ts);
       currentDate = String(ds);
       
+      // Only draw the clock if we are on the Main Screen
       if (currentScreen == MAIN) {
         tft.setTextSize(1);
         tft.setTextColor(COLOR_ACCENT, COLOR_HEADER); 
@@ -317,16 +468,19 @@ void loop() {
     lastTimeUpdate = millis();
   }
 
-  // Update Weather every 15 mins
+  // 3. Update Weather (Every 15 mins)
   if (millis() - lastWeatherUpdate > WEATHER_INTERVAL) {
     fetchWeather();
+    // Refresh screens only if the user is currently looking at them
     if (currentScreen == MAIN) drawMainScreen();
+    if (currentScreen == WEATHER) drawWeatherScreen();
     lastWeatherUpdate = millis();
   }
 
-  // Update Stocks every 5 mins
+  // 4. Update Stocks (Every 5 mins)
   if (millis() - lastStockUpdate > STOCK_INTERVAL) {
     fetchStocks();
+    // Refresh screens only if the user is currently looking at them
     if (currentScreen == STOCKS) drawStocksScreen();
     lastStockUpdate = millis();
   }
