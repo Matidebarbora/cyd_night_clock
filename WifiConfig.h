@@ -8,10 +8,9 @@ struct WifiCredential {
 
 // Add as many networks as you like here
 WifiCredential myNetworks[] = {
-  {"JMD_5381", "12345678"},
   {"Room24", "Luanita24"},
-  {"VTR-0663620", "Sc3rwcyrwfqn"}
-  {"Phone_Hotspot", "Hotspot_Password"}
+  {"VTR-0663620", "Sc3rwcyrwfqn"},
+  {"JMD_5381", "12345678"}
 };
 
 const int networkCount = sizeof(myNetworks) / sizeof(myNetworks[0]);
